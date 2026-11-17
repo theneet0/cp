@@ -1,0 +1,6 @@
+{
+  "name": "CF-Scanner Engineering Workbench",
+  "description": "Cloudflare CDN IP & Domain Scanner with Upload Speed Test (UploadTest) and Single IP + CIDR Range Support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
