@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CF-Scanner — Cloudflare CDN &amp; Edge IP Scanner</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Control Bar -->
+    <header class="topbar">
+      <div class="brand-zone">
+        <span class="brand-title">CF-Scanner</span>
+        <span class="brand-meta">Windows x64 (v3) · Wails v2</span>
+      </div>
+
+      <div class="progress-zone" aria-label="Scan progress">
+        <div class="progress-stats">
+          <span id="status-badge" class="status-text" data-state="idle">Idle</span>
+          <span class="sep">·</span>
+          <span>Scanned: <strong id="stat-scanned" class="mono">0 / 0</strong></span>
+          <span class="sep">·</span>
+          <span>Passed: <strong id="stat-passed" class="mono text-success">0</strong></span>
+          <span class="sep">·</span>
+          <span>Elapsed: <strong id="stat-elapsed" class="mono">0.0s</strong></span>
+        </div>
+        <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-bar-container">
+          <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <div class="actions-zone">
+        <button type="button" id="btn-theme-toggle" class="btn btn-secondary" title="Toggle Dark / Light Theme">
+          Light Mode
+        </button>
+        <button type="button" id="btn-load-conf" class="btn btn-secondary">
+          Load conf.json
+        </button>
+        <button type="button" id="btn-save-conf" class="btn btn-secondary">
+          Save conf.json
+        </button>
+        <button type="button" id="btn-start-stop" class="btn btn-primary" data-running="false">
+          Start Scan
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace Split -->
+    <div class="workspace">
+      <!-- Left Sidebar Navigation for 1-to-1 conf.json Sections -->
+      <aside class="sidebar" aria-label="Configuration sections">
+        <div class="sidebar-group-label">Configuration Sections</div>
+        <nav class="sidebar-nav">
+          <button type="button" class="nav-item active" data-tab="tab-general">
+            <span>1. General &amp; Execution</span>
+          </button>
+          <button type="button" class="nav-item" data-tab="tab-targets">
+            <span>2. Targets &amp; IP Filtering</span>
+          </button>
+          <button type="button" class="nav-item" data-tab="tab-http">
+            <span>3. HTTP Request &amp; Validation</span>
+          </button>
+          <button type="button" class="nav-item" data-tab="tab-network">
+            <span>4. Network, Ping &amp; Jitter</span>
+          </button>
+          <button type="button" class="nav-item" data-tab="tab-tls">
+            <span>5. TLS, uTLS, Fragment &amp; H3</span>
+          </button>
+          <button type="button" class="nav-item" data-tab="tab-speed">
+            <span>6. Speed Tests (Down / Up)</span>
+          </button>
+          <button type="button" class="nav-item" data-tab="tab-json">
+            <span>7. Raw JSON &amp; File Actions</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <button type="button" id="btn-import-conf" class="btn btn-secondary btn-block">Import JSON...</button>
+          <button type="button" id="btn-save-as-conf" class="btn btn-secondary btn-block">Save As...</button>
+          <button type="button" id="btn-reset-conf" class="btn btn-ghost btn-block">Reset Defaults</button>
+        </div>
+      </aside>
+
+      <!-- Center & Right Main Content -->
+      <main class="main-viewport">
+        <!-- Validation / Speed-Test Warning Banner -->
+        <div id="goroutine-warning" class="warning-banner hidden" role="alert">
+          <div class="warning-text">
+            <strong>Bandwidth Contention Warning:</strong>
+            <code>DownloadTest</code> or <code>UploadTest</code> is enabled while <code>Goroutines</code> is greater than 1 (<span id="warn-goroutine-val" class="mono">16</span>). Running concurrent speed tests causes inaccurate measurements.
+          </div>
+          <button type="button" id="btn-fix-goroutines" class="btn btn-warn-action">Set Goroutines = 1</button>
+        </div>
+
+        <!-- Upper Configuration Pane -->
+        <section class="config-pane">
+          <!-- TAB 1: General & Execution -->
+          <div id="tab-general" class="tab-panel active">
+            <div class="panel-header">
+              <h2>General &amp; Execution</h2>
+              <p>Configure concurrency, latency thresholds, logging, and output file format.</p>
+            </div>
+            <div class="form-grid cols-2">
+              <div class="field">
+                <label for="cfg-Goroutines">Goroutines <span class="key-hint">"Goroutines"</span></label>
+                <input type="number" id="cfg-Goroutines" min="1" max="512" step="1" class="mono" />
+                <span class="field-help">Concurrent worker goroutines (use 1 when DownloadTest or UploadTest is enabled).</span>
+              </div>
+              <div class="field">
+                <label for="cfg-Maxlatency">Max Latency (ms) <span class="key-hint">"Maxlatency"</span></label>
+                <input type="number" id="cfg-Maxlatency" min="50" max="60000" step="50" class="mono" />
+                <span class="field-help">Maximum acceptable TCP/TLS/HTTP response latency in milliseconds.</span>
+              </div>
+            </div>
+            <div class="toggle-grid">
+              <label class="toggle-card">
+                <input type="checkbox" id="cfg-ProgressBar" />
+                <div>
+                  <div class="toggle-title">ProgressBar <span class="key-hint">"ProgressBar"</span></div>
+                  <div class="toggle-desc">Enable progress tracking (disables verbose CLI console logs when run in terminal).</div>
+                </div>
+              </label>
+              <label class="toggle-card">
+                <input type="checkbox" id="cfg-Log" />
+                <div>
+                  <div class="toggle-title">Enable Logging <span class="key-hint">"Log"</span></div>
+                  <div class="toggle-desc">Stream detailed ping, handshake, jitter, and speed test events to Live Logs.</div>
+                </div>
+              </label>
+              <label class="toggle-card">
+                <input type="checkbox" id="cfg-CSV" />
+                <div>
+                  <div class="toggle-title">CSV Output Format <span class="key-hint">"CSV"</span></div>
+                  <div class="toggle-desc">Write scan results to <code>result.csv</code> instead of <code>result.txt</code>.</div>
+                </div>
+              </label>
+              <label class="toggle-card">
+                <input type="checkbox" id="cfg-RandomScan" />
+                <div>
+                  <div class="toggle-title">RandomScan <span class="key-hint">"RandomScan"</span></div>
+                  <div class="toggle-desc">Shuffle expanded IP list before scanning to distribute requests across subnets.</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- TAB 2: Targets & IP Filtering -->
+          <div id="tab-targets" class="tab-panel">
+            <div class="panel-header">
+              <h2>Targets &amp; IP Filtering</h2>
+              <p>Configure IPv4/IPv6 lists (supporting both single IPs and CIDR ranges), AllowRange/IgnoreRange filters, and DomainScan.</p>
+            </div>
+            <div class="form-grid cols-2">
+              <div class="field">
+                <label for="cfg-IpVersion">IP Version <span class="key-hint">"IpVersion"</span></label>
+                <select id="cfg-IpVersion" class="mono">
+                  <option value="4">4 (IPv4 — Single IPs /32 &amp; CIDR Ranges)</option>
+                  <option value="6">6 (IPv6 — Single IPs /128 &amp; CIDR Ranges)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="cfg-IplistPath">IP List File Path <span class="key-hint">"IplistPath"</span></label>
+                <div class="input-with-btn">
+                  <input type="text" id="cfg-IplistPath" class="mono" placeholder="ipv4.txt" />
+                  <button type="button" id="btn-browse-iplist" class="btn btn-secondary">Browse File...</button>
+                  <button type="button" id="btn-load-iplist-editor" class="btn btn-secondary">Load File</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Inline IP List Editor & Live Preview -->
+            <div class="subpanel">
+              <div class="subpanel-header">
+                <div>
+                  <strong>Inline IP / CIDR List Editor &amp; Validator</strong>
+                  <span class="subpanel-meta" id="iplist-preview-summary">Supports bare single IPs (104.16.132.229, 2606:4700::6810:84e5) and CIDR blocks.</span>
+                </div>
+                <div class="subpanel-actions">
+                  <button type="button" id="btn-preview-iplist" class="btn btn-secondary btn-sm">Validate &amp; Count</button>
+                  <button type="button" id="btn-save-iplist-editor" class="btn btn-secondary btn-sm">Save to IplistPath</button>
+                </div>
+              </div>
+              <textarea id="iplist-inline-editor" rows="4" class="mono" placeholder="# Paste or edit single IPs and CIDR ranges here...&#10;104.16.132.229&#10;104.16.0.0/24"></textarea>
+              <div id="iplist-warnings" class="inline-warnings hidden"></div>
+            </div>
+
+            <div class="form-grid cols-2">
+              <div class="field">
+                <label for="cfg-IgnoreRange">IgnoreRange (One CIDR or Single IP per line) <span class="key-hint">"IgnoreRange"</span></label>
+                <textarea id="cfg-IgnoreRange" rows="3" class="mono" placeholder="172.0.0.0/8&#10;104.16.132.229"></textarea>
+              </div>
+              <div class="field">
+                <label for="cfg-AllowRange">AllowRange (One CIDR or Single IP per line; empty = allow all) <span class="key-hint">"AllowRange"</span></label>
+                <textarea id="cfg-AllowRange" rows="3" class="mono" placeholder="104.16.0.0/16&#10;104.16.132.229"></textarea>
+              </div>
+            </div>
+
+            <div class="subpanel">
+              <div class="subpanel-header">
+                <strong>DomainScan Configuration <span class="key-hint">"DomainScan"</span></strong>
+              </div>
+              <div class="toggle-grid cols-3">
+                <label class="toggle-compact"><input type="checkbox" id="cfg-DomainScan-Enable" /> <span>Enable (<code>"Enable"</code>)</span></label>
+                <label class="toggle-compact"><input type="checkbox" id="cfg-DomainScan-DomainAsSNI" /> <span>DomainAsSNI (<code>"DomainAsSNI"</code>)</span></label>
+                <label class="toggle-compact"><input type="checkbox" id="cfg-DomainScan-DomainAsHost" /> <span>DomainAsHost (<code>"DomainAsHost"</code>)</span></label>
+                <label class="toggle-compact"><input type="checkbox" id="cfg-DomainScan-Shuffle" /> <span>Shuffle (<code>"Shuffle"</code>)</span></label>
+                <label class="toggle-compact"><input type="checkbox" id="cfg-DomainScan-SkipIPV6" /> <span>SkipIPV6 (<code>"SkipIPV6"</code>)</span></label>
+              </div>
+              <div class="field mt-8">
+                <label for="cfg-DomainScan-DomainListPath">DomainListPath <span class="key-hint">"DomainListPath"</span></label>
+                <div class="input-with-btn">
+                  <input type="text" id="cfg-DomainScan-DomainListPath" class="mono" placeholder="cloudfalare-domains.txt" />
+                  <button type="button" id="btn-browse-domainlist" class="btn btn-secondary">Browse File...</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 3: HTTP Request & Validation -->
+          <div id="tab-http" class="tab-panel">
+            <div class="panel-header">
+              <h2>HTTP Request &amp; Response Validation</h2>
+              <p>Configure request Hostname, Ports, Path, Padding cookies, custom Request Headers, and expected Response validation.</p>
+            </div>
+            <div class="form-grid cols-3">
+              <div class="field">
+                <label for="cfg-Hostname">Hostname <span class="key-hint">"Hostname"</span></label>
+                <input type="text" id="cfg-Hostname" class="mono" placeholder="cp.cloudflare.com or {ip}" />
+              </div>
+              <div class="field">
+                <label for="cfg-Path">Path <span class="key-hint">"Path"</span></label>
+                <input type="text" id="cfg-Path" class="mono" placeholder="/" />
+              </div>
+              <div class="field">
+                <label for="cfg-Ports">Ports (comma-separated; empty = default 443/80) <span class="key-hint">"Ports"</span></label>
+                <input type="text" id="cfg-Ports" class="mono" placeholder="e.g. 443, 2053, 8443 (empty = auto)" />
+              </div>
+            </div>
+
+            <div class="form-grid cols-2">
+              <div class="field">
+                <label for="cfg-ResponseStatusCode">Acceptable Status Codes <span class="key-hint">"ResponseStatusCode"</span></label>
+                <input type="text" id="cfg-ResponseStatusCode" class="mono" placeholder="200, 204" />
+              </div>
+              <div class="field">
+                <label for="cfg-PaddingSize">Cookie Padding Size Range <span class="key-hint">"PaddingSize"</span></label>
+                <div class="input-with-toggle">
+                  <label class="toggle-compact"><input type="checkbox" id="cfg-Padding" /> <span>Enable (<code>"Padding"</code>)</span></label>
+                  <input type="text" id="cfg-PaddingSize" class="mono" placeholder="100-1000" />
+                </div>
+              </div>
+            </div>
+
+            <div class="form-grid cols-2">
+              <div class="subpanel">
+                <div class="subpanel-header">
+                  <strong>Request Headers <span class="key-hint">"Headers"</span></strong>
+                  <button type="button" id="btn-add-req-header" class="btn btn-secondary btn-sm">+ Add Header</button>
+                </div>
+                <div id="req-headers-list" class="kv-list"></div>
+              </div>
+
+              <div class="subpanel">
+                <div class="subpanel-header">
+                  <strong>Required Response Headers <span class="key-hint">"ResponseHeader"</span></strong>
+                  <button type="button" id="btn-add-resp-header" class="btn btn-secondary btn-sm">+ Add Match Rule</button>
+                </div>
+                <div id="resp-headers-list" class="kv-list"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 4: Network, Ping & Jitter -->
+          <div id="tab-network" class="tab-panel">
+            <div class="panel-header">
+              <h2>Network, Ping &amp; Jitter</h2>
+              <p>Configure ICMP/UDP pre-scan Ping checks and multi-sample HTTP Jitter evaluation.</p>
+            </div>
+            <div class="form-grid cols-2">
+              <div class="subpanel">
+                <div class="subpanel-header">
+                  <strong>Ping Configuration <span class="key-hint">"Ping"</span></strong>
+                  <label class="toggle-compact"><input type="checkbox" id="cfg-Ping-Enable" /> <span>Enable (<code>"Enable"</code>)</span></label>
+                </div>
+                <div class="form-grid cols-2">
+                  <div class="field">
+                    <label for="cfg-Ping-MaxPing">MaxPing (ms) <span class="key-hint">"MaxPing"</span></label>
+                    <input type="number" id="cfg-Ping-MaxPing" min="1" step="10" class="mono" />
+                  </div>
+                  <div class="field">
+                    <label for="cfg-Ping-Size">Packet Size Range <span class="key-hint">"Size"</span></label>
+                    <input type="text" id="cfg-Ping-Size" class="mono" placeholder="24-65" />
+                  </div>
+                </div>
+                <label class="toggle-compact mt-8">
+                  <input type="checkbox" id="cfg-Ping-Privileged" />
+                  <span>Privileged Raw ICMP Ping (<code>"Privileged"</code> — requires Administrator/root privileges when true)</span>
+                </label>
+              </div>
+
+              <div class="subpanel">
+                <div class="subpanel-header">
+                  <strong>Jitter Calculation <span class="key-hint">"Jitter"</span></strong>
+                  <label class="toggle-compact"><input type="checkbox" id="cfg-Jitter-Enable" /> <span>Enable (<code>"Enable"</code>)</span></label>
+                </div>
+                <div class="form-grid cols-3">
+                  <div class="field">
+                    <label for="cfg-Jitter-MaxJitter">MaxJitter (ms) <span class="key-hint">"MaxJitter"</span></label>
+                    <input type="number" id="cfg-Jitter-MaxJitter" min="0.1" step="0.5" class="mono" />
+                  </div>
+                  <div class="field">
+                    <label for="cfg-Jitter-Samples">Samples <span class="key-hint">"Samples"</span></label>
+                    <input type="number" id="cfg-Jitter-Samples" min="1" max="50" step="1" class="mono" />
+                  </div>
+                  <div class="field">
+                    <label for="cfg-Jitter-Interval">Interval (ms) <span class="key-hint">"Interval"</span></label>
+                    <input type="number" id="cfg-Jitter-Interval" min="0" step="10" class="mono" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 5: TLS, uTLS, Fragment, HTTP/3 & Noise -->
+          <div id="tab-tls" class="tab-panel">
+            <div class="panel-header">
+              <h2>TLS, uTLS, ClientHello Fragment, HTTP/3 &amp; UDP Noise</h2>
+              <p>Configure TLS SNI/ALPN, uTLS browser fingerprinting, TLS ClientHello fragmentation, and HTTP/3 QUIC noise packets.</p>
+            </div>
+            <div class="form-grid cols-2">
+              <div class="subpanel">
+                <div class="subpanel-header">
+                  <strong>TLS &amp; HTTP/3 <span class="key-hint">"TLS" / "HTTP/3"</span></strong>
+                  <div class="subpanel-actions">
+                    <label class="toggle-compact"><input type="checkbox" id="cfg-TLS-Enable" /> <span>TLS.Enable</span></label>
+                    <label class="toggle-compact"><input type="checkbox" id="cfg-HTTP3" /> <span>HTTP/3 (<code>"HTTP/3"</code>)</span></label>
+                  </div>
+                </div>
+                <div class="form-grid cols-2">
+                  <div class="field">
+                    <label for="cfg-TLS-SNI">TLS SNI <span class="key-hint">"SNI"</span></label>
+                    <input type="text" id="cfg-TLS-SNI" class="mono" placeholder="cp.cloudflare.com or {ip}" />
+                  </div>
+                  <div class="field">
+                    <label for="cfg-TLS-Alpn">ALPN Protocols (comma-separated) <span class="key-hint">"Alpn"</span></label>
+                    <input type="text" id="cfg-TLS-Alpn" class="mono" placeholder="h2, http/1.1" />
+                  </div>
+                </div>
+                <label class="toggle-compact mt-8">
+                  <input type="checkbox" id="cfg-TLS-Insecure" />
+                  <span>Skip Certificate Verification (<code>"Insecure"</code>)</span>
+                </label>
+              </div>
+
+              <div class="subpanel">
+                <div class="subpanel-header">
+                  <strong>uTLS Fingerprint <span class="key-hint">"TLS.Utls"</span></strong>
+                  <label class="toggle-compact"><input type="checkbox" id="cfg-TLS-Utls-Enable" /> <span>Utls.Enable</span></label>
+                </div>
+                <div class="form-grid cols-3">
+                  <div class="field">
+                    <label for="cfg-TLS-Utls-Fingerprint">Fingerprint <span class="key-hint">"Fingerprint"</span></label>
+                    <select id="cfg-TLS-Utls-Fingerprint" class="mono">
+                      <option value="chrome">chrome</option>
+                      <option value="firefox">firefox</option>
+                      <option value="edge">edge</option>
+                      <option value="360">360</option>
+                      <option value="ios">ios</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="cfg-TLS-Utls-TcpTimeout">TcpTimeout (ms) <span class="key-hint">"TcpTimeout"</span></label>
+                    <input type="number" id="cfg-TLS-Utls-TcpTimeout" min="50" step="50" class="mono" />
+                  </div>
+                  <div class="field">
+                    <label for="cfg-TLS-Utls-TcpConnectAttempt">Connect Attempts <span class="key-hint">"TcpConnectAttempt"</span></label>
+                    <input type="number" id="cfg-TLS-Utls-TcpConnectAttempt" min="1" max="10" step="1" class="mono" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-grid cols-2">
+              <div class="subpanel">
+                <div class="subpanel-header">
+                  <strong>TLS ClientHello Fragment <span class="key-hint">"TLS.Utls.Fragment"</span></strong>
+                  <label class="toggle-compact"><input type="checkbox" id="cfg-Fragment-Enable" /> <span>Fragment.Enable</span></label>
+                </div>
+                <div class="form-grid cols-3">
+                  <div class="field">
+                    <label for="cfg-Fragment-Length">Length Range <span class="key-hint">"Length"</span></label>
+                    <input type="text" id="cfg-Fragment-Length" class="mono" placeholder="50-100" />
+                  </div>
+                  <div class="field">
+                    <label for="cfg-Fragment-Delay">Delay Range (ms) <span class="key-hint">"Delay"</span></label>
+                    <input type="text" id="cfg-Fragment-Delay" class="mono" placeholder="10-15" />
+                  </div>
+                  <div class="field">
+                    <label for="cfg-Fragment-MaxSplit">MaxSplit (empty = null) <span class="key-hint">"MaxSplit"</span></label>
+                    <input type="text" id="cfg-Fragment-MaxSplit" class="mono" placeholder="null (or e.g. 2-5)" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="subpanel">
+                <div class="subpanel-header">
+                  <strong>HTTP/3 UDP Noise Injection <span class="key-hint">"Noises"</span></strong>
+                  <div class="subpanel-actions">
+                    <label class="toggle-compact"><input type="checkbox" id="cfg-Noises-Enable" /> <span>Noises.Enable</span></label>
+                    <button type="button" id="btn-add-noise-packet" class="btn btn-secondary btn-sm">+ Add Packet</button>
+                  </div>
+                </div>
+                <div id="noise-packets-list" class="kv-list"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 6: Speed Tests (DownloadTest & UploadTest) -->
+          <div id="tab-speed" class="tab-panel">
+            <div class="panel-header">
+              <h2>Speed Tests (DownloadTest &amp; UploadTest)</h2>
+              <p>Configure independent or sequential HTTP GET download and streaming HTTP POST upload speed tests with JAMMED detection.</p>
+            </div>
+            <div class="form-grid cols-2">
+              <div class="subpanel">
+                <div class="subpanel-header">
+                  <strong>DownloadTest <span class="key-hint">"DownloadTest"</span></strong>
+                  <label class="toggle-compact"><input type="checkbox" id="cfg-DownloadTest-Enable" /> <span>Enable</span></label>
+                </div>
+                <div class="field">
+                  <label for="cfg-DownloadTest-Url">Target URL <span class="key-hint">"Url"</span></label>
+                  <input type="text" id="cfg-DownloadTest-Url" class="mono" />
+                </div>
+                <div class="form-grid cols-3">
+                  <div class="field">
+                    <label for="cfg-DownloadTest-SNI">SNI <span class="key-hint">"SNI"</span></label>
+                    <input type="text" id="cfg-DownloadTest-SNI" class="mono" />
+                  </div>
+                  <div class="field">
+                    <label for="cfg-DownloadTest-TargetBytes">TargetBytes <span class="key-hint">"TargetBytes"</span></label>
+                    <input type="number" id="cfg-DownloadTest-TargetBytes" min="1024" step="500000" class="mono" />
+                  </div>
+                  <div class="field">
+                    <label for="cfg-DownloadTest-Timeout">Timeout (ms) <span class="key-hint">"Timeout"</span></label>
+                    <input type="number" id="cfg-DownloadTest-Timeout" min="100" step="500" class="mono" />
+                  </div>
+                </div>
+                <label class="toggle-compact mt-8">
+                  <input type="checkbox" id="cfg-DownloadTest-SeparateConnection" />
+                  <span>Open Separate Connection (<code>"SeparateConnection"</code> — required for HTTP/3)</span>
+                </label>
+              </div>
+
+              <div class="subpanel">
+                <div class="subpanel-header">
+                  <strong>UploadTest <span class="key-hint">"UploadTest"</span></strong>
+                  <label class="toggle-compact"><input type="checkbox" id="cfg-UploadTest-Enable" /> <span>Enable</span></label>
+                </div>
+                <div class="field">
+                  <label for="cfg-UploadTest-Url">Target POST URL <span class="key-hint">"Url"</span></label>
+                  <input type="text" id="cfg-UploadTest-Url" class="mono" />
+                </div>
+                <div class="form-grid cols-2">
+                  <div class="field">
+                    <label for="cfg-UploadTest-SNI">SNI <span class="key-hint">"SNI"</span></label>
+                    <input type="text" id="cfg-UploadTest-SNI" class="mono" />
+                  </div>
+                  <div class="field">
+                    <label for="cfg-UploadTest-Timeout">Timeout (ms) <span class="key-hint">"Timeout"</span></label>
+                    <input type="number" id="cfg-UploadTest-Timeout" min="100" step="500" class="mono" />
+                  </div>
+                </div>
+                <div class="form-grid cols-2">
+                  <div class="field">
+                    <label for="cfg-UploadTest-PayloadBytes">PayloadBytes (POST Body) <span class="key-hint">"PayloadBytes"</span></label>
+                    <input type="number" id="cfg-UploadTest-PayloadBytes" min="1024" step="500000" class="mono" />
+                  </div>
+                  <div class="field">
+                    <label for="cfg-UploadTest-TargetBytes">TargetBytes (Min Expected) <span class="key-hint">"TargetBytes"</span></label>
+                    <input type="number" id="cfg-UploadTest-TargetBytes" min="1024" step="500000" class="mono" />
+                  </div>
+                </div>
+                <label class="toggle-compact mt-8">
+                  <input type="checkbox" id="cfg-UploadTest-SeparateConnection" />
+                  <span>Open Separate Connection (<code>"SeparateConnection"</code> — required for HTTP/3)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 7: Raw JSON & File Actions -->
+          <div id="tab-json" class="tab-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Raw <code>conf.json</code> Editor &amp; Synchronization</h2>
+                <p>Two-way synchronized with all GUI controls. Edit raw JSON directly and click "Apply Raw JSON to Form".</p>
+              </div>
+              <div class="subpanel-actions">
+                <button type="button" id="btn-apply-raw-json" class="btn btn-secondary">Apply Raw JSON to Form</button>
+                <button type="button" id="btn-copy-raw-json" class="btn btn-secondary">Copy JSON</button>
+              </div>
+            </div>
+            <textarea id="raw-json-editor" rows="12" class="mono raw-json-textarea" spellcheck="false"></textarea>
+            <div id="raw-json-error" class="inline-warnings hidden"></div>
+          </div>
+        </section>
+
+        <!-- Lower Live Results & Real-Time Logs Split -->
+        <section class="telemetry-split">
+          <!-- Results Table Panel -->
+          <div class="results-card">
+            <div class="card-toolbar">
+              <div class="toolbar-left">
+                <h3>Live Scan Results</h3>
+                <input type="search" id="results-filter" placeholder="Filter by IP, domain, or status..." class="input-sm" />
+              </div>
+              <div class="toolbar-right">
+                <button type="button" id="btn-copy-all-ips" class="btn btn-secondary btn-sm">Copy All Passed IPs</button>
+                <button type="button" id="btn-export-csv" class="btn btn-secondary btn-sm">Export CSV</button>
+                <button type="button" id="btn-export-txt" class="btn btn-secondary btn-sm">Export TXT</button>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table class="results-table" id="results-table">
+                <thead>
+                  <tr>
+                    <th data-sort="addr" class="sortable">IP : Port / Domain</th>
+                    <th data-sort="pingMs" class="sortable num">Ping</th>
+                    <th data-sort="latencyMs" class="sortable num">Latency</th>
+                    <th data-sort="jitterMs" class="sortable num">Jitter</th>
+                    <th data-sort="downloadMbps" class="sortable num">Download</th>
+                    <th data-sort="uploadMbps" class="sortable num">Upload</th>
+                    <th data-sort="status" class="sortable">Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="results-tbody">
+                  <tr class="empty-row">
+                    <td colspan="8">No scan results yet. Click "Start Scan" to begin probing endpoints.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Live Logs Panel -->
+          <div class="logs-card">
+            <div class="card-toolbar">
+              <div class="toolbar-left">
+                <h3>Live Scanner Logs</h3>
+                <select id="log-level-filter" class="input-sm">
+                  <option value="all">All Levels</option>
+                  <option value="success">Passed Only</option>
+                  <option value="warn">Warnings / Jammed</option>
+                  <option value="error">Errors</option>
+                </select>
+              </div>
+              <div class="toolbar-right">
+                <label class="toggle-compact"><input type="checkbox" id="log-autoscroll" checked /> <span>Auto-scroll</span></label>
+                <button type="button" id="btn-clear-logs" class="btn btn-ghost btn-sm">Clear Log</button>
+              </div>
+            </div>
+            <div id="logs-container" class="logs-viewport mono" role="log" aria-live="polite">
+              <div class="log-line log-info">[System] CF-Scanner GUI initialized. Ready to scan.</div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,48 +1,40 @@
-# This is an example .goreleaser.yml file with some sensible defaults.
-# Make sure to check the documentation at https://goreleaser.com
-
-# The lines below are called `modelines`. See `:help modeline`
-# Feel free to remove those if you don't want/need to use them.
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
-# vim: set ts=2 sw=2 tw=0 fo=cnqoj
-
 version: 2
+
+project_name: cf-scanner
 
 before:
   hooks:
-    # You may remove this if you don't use go modules.
     - go mod tidy
-    # you may remove this if you don't need go generate
-    - go generate ./...
+    - go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64
 
 builds:
-  - id: default
+  - id: windows-amd64-v3
+    main: .
+    binary: cf-scanner
     env:
       - CGO_ENABLED=0
     goos:
-      - linux
       - windows
-      - darwin
     goarch:
-      - 386
       - amd64
-      - arm64
     goamd64:
-      - v1
       - v3
-  - id: linux-arm
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-    goarch:
-      - arm
-    goarm:
-      - 6
-      - 7
+    tags:
+      - desktop
+      - production
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -H=windowsgui
 
 archives:
-  - formats: [tar.gz]
+  - id: windows-amd64-v3-archive
+    builds:
+      - windows-amd64-v3
+    formats:
+      - zip
+    name_template: "cf-scanner-windows-amd64-v3"
     files:
       - conf.json
       - ipv4.txt
@@ -52,18 +44,12 @@ archives:
       - cloudflare-iran-domains.txt
       - Akamai.txt
       - Fastly.txt
-    # this name template makes the OS and Arch compatible with the results of `uname`.
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- title .Os }}_
-      {{- if eq .Arch "amd64" }}x86_64{{.Amd64}}
-      {{- else if eq .Arch "386" }}i386
-      {{- else }}{{ .Arch }}{{ end }}
-      {{- if .Arm }}v{{ .Arm }}{{ end }}
-    # use zip for windows archives
-    format_overrides:
-      - goos: windows
-        formats: [zip]
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "cf-scanner-windows-amd64-v3-checksums.txt"
+  algorithm: sha256
 
 changelog:
   sort: asc
@@ -73,8 +59,9 @@ changelog:
       - "^test:"
 
 release:
+  replace_existing_artifacts: true
   footer: >-
 
     ---
 
-    Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
+    Built for **Windows x64 (`GOAMD64=v3`)** with Wails v2 & WebView2.

@@ -6,7 +6,7 @@
 
 [Русский учебник](/tutorial/RU.md)
 
-Cloudflare scanner
+Cloudflare CDN & Edge IP Scanner — Native Windows Desktop GUI (Wails v2) & CLI
 
 **This scanner can be used with any CDN, provided you have the necessary requirements, such as an IP list or domain list for scanning. By default, it is configured to target Cloudflare. [Please review the JSON configuration document below.](#configuration-parameters)**
 
@@ -42,25 +42,64 @@ Cloudflare scanner
 
 ![Graph](/graph.webp)
 
-## features
+## Features
 
+- [x] Native Lightweight Windows Desktop GUI (Wails v2 + Edge WebView2 + Vanilla HTML/CSS/JS)
+- [x] Complete 1-to-1 `conf.json` GUI Editor + Bidirectional Raw JSON Sync
+- [x] In-Process Scanner Engine (`internal/scanner`) with Instant Context Cancellation (`Start` / `Stop`)
+- [x] Live Sortable & Filterable Results Table + Real-Time Colored Log Viewer + One-Click CSV/TXT Export
 - [x] HTTP/1.1 + HTTP/2 + HTTP/3
-- [x] Ping + Latency + Jitter + Download speed test + Upload speed test
-- [x] Single IP & CIDR range support (`IplistPath`, `AllowRange`, `IgnoreRange`)
-- [x] UTLS
-- [x] Noise for HTTP/3
-- [x] CSV format result
-- [x] Padding
-- [x] Fragment
+- [x] Ping + Latency + Jitter + Download Speed Test + Upload Speed Test (`UploadTest`)
+- [x] Single IP & CIDR Range Support (`IplistPath`, `AllowRange`, `IgnoreRange`)
+- [x] uTLS Browser Fingerprinting + TLS ClientHello Fragment
+- [x] UDP Noise Injection for HTTP/3
+- [x] CSV & TXT Result Output
 
-## Build
+## Build & Development Instructions
 
-To build, run the following commands in the project directory:
+### 1. Build Native Windows Desktop GUI (`windows/amd64`, `GOAMD64=v3`)
+
+The desktop GUI uses **Wails v2** (`github.com/wailsapp/wails/v2`) with pure Vanilla HTML/CSS/JS embedded via `//go:embed all:frontend` and compiles cleanly with `CGO_ENABLED=0` using Windows native Edge WebView2:
+
+```powershell
+# 1. Tidy dependencies and verify packages
+go mod tidy
+go vet ./...
+
+# 2. (Optional) Generate Windows High-DPI manifest & icon resource (.syso)
+go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64
+
+# 3. Build production Windows amd64 (v3) GUI binary (no console window flash)
+$env:CGO_ENABLED="0"
+$env:GOOS="windows"
+$env:GOARCH="amd64"
+$env:GOAMD64="v3"
+go build -trimpath -tags "desktop,production" -ldflags "-s -w -H=windowsgui" -o cf-scanner.exe .
+```
+
+Or if using the Wails CLI during development:
 
 ```sh
-go mod tidy
-go build -ldflags "-w -s"
+wails dev
+wails build -clean -platform windows/amd64
 ```
+
+### 2. Build or Run Standalone CLI
+
+You can also run the scanner in headless CLI mode via `./cmd/cli` (or by passing `-cli`):
+
+```sh
+go build -ldflags "-w -s" -o cf-scanner-cli ./cmd/cli
+./cf-scanner-cli -c conf.json
+```
+
+### 3. Automated GitHub Actions Release Pipeline
+
+Pushing a version tag (`v*`, e.g. `git tag v2.0.0 && git push origin v2.0.0`), publishing a release, or triggering the workflow manually (`workflow_dispatch`) runs `.github/workflows/release.yml`, which:
+- Targets **ONLY `windows/amd64` with `GOAMD64=v3` and `CGO_ENABLED=0`**.
+- Embeds the High-DPI manifest and application icon (`rsrc_windows_amd64.syso`) via `go-winres`.
+- Compiles `cf-scanner.exe` with `-tags "desktop,production"` and `-ldflags "-s -w -H=windowsgui"`.
+- Packages `cf-scanner.exe`, `conf.json`, `ipv4.txt`, `ipv6.txt`, and domain list files into `cf-scanner-windows-amd64-v3.zip` (plus `.sha256` checksum) and attaches them to the GitHub Release.
 
 ## Sort `result.txt` file
 
@@ -90,19 +129,19 @@ go build -ldflags "-w -s"
  "Ports": [], // If empty, defaults to port 443 for HTTPS and 80 for HTTP.
  "Path": "/", // The path to append to the hostname.
  "Headers": { // Additional HTTP headers.
-    "User-Agent": ["Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0"],
+    "User-Agent": ["Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:153.0) Gecko/20100101 Firefox/153.0"]
  },
  "ResponseHeader": { // Headers that an HTTP response must include.
     "Server": "cloudflare"
  },
  "ResponseStatusCode": [200, 204], // Acceptable status codes.
  "Padding": true, // Enable padding in HTTP requests by adding random text as cookies. This helps eliminate fixed-size requests.
- "PaddingSize": "1-100", // Padding size range.
+ "PaddingSize": "100-1000", // Padding size range.
  "Ping": {
    "Enable": true, // Enable ping IP.
    "MaxPing": 300, // Maximum acceptable ping time (in milliseconds).
    "Privileged": true, // SetPrivileged sets the type of ping pinger will send. false means pinger will send an "unprivileged" UDP ping. true means pinger will send a "privileged" raw ICMP ping. Setting to true requires that it be run with super-user privileges.
-   "Size": "24-64" // Pinger packet size
+   "Size": "24-65" // Pinger packet size
  },
  "Goroutines": 16, // Number of concurrent goroutines for scanning (set to 1 when DownloadTest or UploadTest is enabled).
  "Maxlatency": 2000, // Maximum acceptable latency (in milliseconds).
@@ -135,7 +174,7 @@ go build -ldflags "-w -s"
    }
  },
  "HTTP/3": false, // Enable HTTP version 3.
- "Noise": {
+ "Noises": {
     "Enable": false, // Enable UDP noise injection for HTTP/3.
     "Packets": [
       {
@@ -145,7 +184,7 @@ go build -ldflags "-w -s"
       },
       {
          "Type": "rand",
-         "Payload": "1-50",
+         "Payload": "1-20",
          "Sleep": "20-50"
       }
     ]

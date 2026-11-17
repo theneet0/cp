@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "cf-scanner",
+  "outputfilename": "cf-scanner",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "cf-scanner"
+  },
+  "info": {
+    "companyName": "cf-scanner",
+    "productName": "CF-Scanner Desktop",
+    "productVersion": "2.0.0",
+    "copyright": "MIT License",
+    "comments": "Cloudflare CDN & Edge IP Scanner with UploadTest and Single IP / CIDR Support"
+  }
+}
