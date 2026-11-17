@@ -2,36 +2,38 @@ name: Release Windows amd64 (v3)
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+  pull_request:
+    branches:
+      - main
   release:
     types:
       - published
   workflow_dispatch:
     inputs:
       tag:
-        description: "Optional release tag (e.g. v2.0.0) when triggered manually"
+        description: "Release tag (e.g. v2.0.0). If empty, only builds and uploads artifact."
         required: false
         default: ""
 
 permissions:
   contents: write
 
-# Prevent duplicate concurrent runs for the same ref/tag
 concurrency:
-  group: release-windows-amd64-v3-${{ github.ref_name }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   release-windows-amd64-v3:
     name: Build & Release Windows amd64 (GOAMD64=v3)
     runs-on: windows-latest
-    # Avoid duplicate double-runs when a v* tag push already triggers this workflow
-    # and publishing the release for that same v* tag fires a second event:
-    if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'v'))
+    defaults:
+      run:
+        working-directory: cf-scanner
+        shell: pwsh
     env:
       CGO_ENABLED: "0"
       GOOS: "windows"
@@ -46,38 +48,44 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: cf-scanner/go.mod
           cache: true
+          cache-dependency-path: cf-scanner/go.sum
 
       - name: Tidy & Verify Dependencies
-        shell: pwsh
         run: |
           go mod tidy
           go vet ./...
 
-      - name: Generate Windows High-DPI Manifest & Icon (.syso)
-        shell: pwsh
+      - name: Run Tests
         run: |
-          go install github.com/tc-hib/go-winres@v0.3.3
-          go-winres make --in winres/winres.json --arch amd64
+          go test -v ./...
 
-      - name: Build Windows amd64 (GOAMD64=v3) Desktop GUI Binary
-        shell: pwsh
+      - name: Generate Windows High-DPI Manifest & Icon (.syso)
         run: |
+          go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64
+
+      - name: Build Windows amd64 (GOAMD64=v3) Binaries
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          # Desktop GUI Binary (suppresses console flash)
           go build -trimpath -tags "desktop,production" -ldflags "-s -w -H=windowsgui" -o dist/cf-scanner.exe .
-          Get-Item dist/cf-scanner.exe | Select-Object Name, Length
+          # Standalone CLI Binary
+          go build -trimpath -ldflags "-s -w" -o dist/cf-scanner-cli.exe ./cmd/cli
+          Get-Item dist/*.exe | Select-Object Name, Length
 
       - name: Package Release Archive & SHA256 Checksum
-        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/stage | Out-Null
           Copy-Item dist/cf-scanner.exe dist/stage/
+          Copy-Item dist/cf-scanner-cli.exe dist/stage/
           $assets = @(
             "conf.json",
             "ipv4.txt",
             "ipv4_old.txt",
             "ipv6.txt",
             "cloudfalare-domains.txt",
+            "cloudfalare-domains-full.txt",
             "cloudflare-iran-domains.txt",
             "Akamai.txt",
             "Fastly.txt",
@@ -99,17 +107,18 @@ jobs:
         with:
           name: cf-scanner-windows-amd64-v3
           path: |
-            dist/cf-scanner-windows-amd64-v3.zip
-            dist/cf-scanner-windows-amd64-v3.zip.sha256
+            cf-scanner/dist/cf-scanner-windows-amd64-v3.zip
+            cf-scanner/dist/cf-scanner-windows-amd64-v3.zip.sha256
 
       - name: Publish or Attach to GitHub Release
-        if: github.event_name == 'push' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
+          name: ${{ inputs.tag || github.ref_name }}
           generate_release_notes: true
           files: |
-            dist/cf-scanner-windows-amd64-v3.zip
-            dist/cf-scanner-windows-amd64-v3.zip.sha256
+            cf-scanner/dist/cf-scanner-windows-amd64-v3.zip
+            cf-scanner/dist/cf-scanner-windows-amd64-v3.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
